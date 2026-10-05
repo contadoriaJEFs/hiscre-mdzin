@@ -1,0 +1,1191 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>PDF → Markdown (HISCRE)</title>
+<style>
+  * { box-sizing: border-box; }
+  html, body { height: 100%; }
+  body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
+         margin: 0; color: #222; line-height: 1.5; background: #f7f8fa; }
+
+  .layout { display: grid; grid-template-columns: minmax(320px, 45%) 1fr; gap: 0; height: 100vh;
+            transition: grid-template-columns .2s ease; }
+  .layout.no-viewer { grid-template-columns: 1fr; }
+  .layout.no-viewer .viewer { display: none; }
+  @media (max-width: 960px) {
+    .layout { grid-template-columns: 1fr; height: auto; }
+    .viewer { height: 60vh; }
+  }
+
+  .viewer { background: #2b2f36; color: #eee; display: flex; flex-direction: column;
+            border-right: 1px solid #1a1d22; min-height: 0; }
+  .viewer-toolbar { display: flex; align-items: center; gap: .5rem; padding: .5rem .75rem;
+                    background: #1f2329; border-bottom: 1px solid #111; flex-wrap: wrap; }
+  .viewer-toolbar button, .viewer-toolbar input {
+    background: #333a43; color: #eee; border: 1px solid #444d58; border-radius: 5px;
+    padding: .25rem .55rem; font-size: .85rem; cursor: pointer; }
+  .viewer-toolbar button:hover { background: #3d4650; }
+  .viewer-toolbar button:disabled { opacity: .4; cursor: not-allowed; }
+  .viewer-toolbar input[type="number"] { width: 4.5rem; text-align: center; cursor: text; }
+  .viewer-toolbar .sep { width: 1px; height: 1.4rem; background: #444d58; margin: 0 .25rem; }
+  .viewer-toolbar .page-info { font-size: .85rem; color: #b7c1cd; }
+  .viewer-toolbar .file-name { font-size: .85rem; color: #8a94a2; margin-left: auto;
+                               overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 40%; }
+
+  .viewer-canvas-wrap { flex: 1; overflow: auto; display: flex; justify-content: center;
+                        align-items: flex-start; padding: 1rem; min-height: 0; }
+  .viewer-canvas-wrap canvas { background: #fff; box-shadow: 0 4px 16px rgba(0,0,0,.4);
+                               border-radius: 3px; max-width: 100%; height: auto; }
+  .viewer-empty { color: #8a94a2; text-align: center; padding: 2rem; font-size: .9rem; }
+
+  .converter { display: flex; flex-direction: column; overflow: hidden; min-height: 0; }
+  .converter-inner { overflow-y: auto; padding: 1.25rem 1.5rem 3rem; }
+
+  .converter-header { display: flex; align-items: center; gap: 1rem; margin-bottom: .25rem; }
+  .converter-header h1 { font-size: 1.25rem; margin: 0; flex: 1; }
+  .converter-header .btn { white-space: nowrap; }
+
+  p.lead { color: #555; margin-top: 0; font-size: .9rem; }
+  .drop { border: 2px dashed #999; padding: 1.25rem; text-align: center; border-radius: 10px;
+          cursor: pointer; transition: .2s; background: #fff; font-size: .9rem; }
+  .drop.hover { background: #eef3ff; border-color: #4466cc; }
+  .btn { display: inline-block; padding: .45rem .9rem; background: #4466cc; color: #fff;
+         border: none; border-radius: 6px; cursor: pointer; font-size: .85rem; }
+  .btn:hover { background: #334499; }
+  .btn.secondary { background: #e9ecf1; color: #333; }
+  .btn.secondary:hover { background: #d8dce3; }
+  .btn.ghost { background: transparent; color: #4466cc; border: 1px solid #b9c7f0; }
+  .btn.ghost:hover { background: #eef3ff; }
+
+  .tabs { display: flex; gap: 0; margin-top: 1.25rem; border-bottom: 1px solid #ddd; }
+  .tabs button { padding: .55rem .9rem; border: none; background: transparent; cursor: pointer;
+                 border-bottom: 2px solid transparent; font-size: .9rem; color: #555; }
+  .tabs button.active { border-bottom-color: #4466cc; color: #4466cc; font-weight: 600; }
+  .panel { display: none; padding-top: 1rem; }
+  .panel.active { display: block; }
+  pre { background: #f6f8fa; padding: 1rem; overflow: auto; border-radius: 8px;
+        max-height: 600px; white-space: pre-wrap; word-break: break-word;
+        font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+        font-size: .82rem; line-height: 1.45; border: 1px solid #e5e8ee; }
+  .warn { background: #fff8e1; border-left: 4px solid #ffb300; padding: .7rem .9rem;
+          margin: .75rem 0; border-radius: 6px; font-size: .85rem; }
+  .err  { background: #ffebee; border-left: 4px solid #e53935; padding: .7rem .9rem;
+          margin: .75rem 0; border-radius: 6px; font-size: .85rem; }
+  .info { background: #e8f5e9; border-left: 4px solid #43a047; padding: .7rem .9rem;
+          margin: .75rem 0; border-radius: 6px; font-size: .85rem; }
+  .actions { display: flex; gap: .5rem; flex-wrap: wrap; margin-bottom: .75rem; }
+
+  .filter-box { background: #f3f6ff; border: 1px solid #d6e0ff; border-radius: 10px;
+    padding: .9rem; margin: .75rem 0; display: flex; gap: .75rem; flex-wrap: wrap; align-items: flex-end; }
+  .filter-box .field { display: flex; flex-direction: column; gap: .2rem; position: relative; }
+  .filter-box label { font-size: .75rem; color: #555; font-weight: 600; }
+  .filter-box input[type="search"] {
+    padding: .4rem .55rem; border: 1px solid #bbb; border-radius: 6px; font-size: .85rem;
+    min-width: 180px; background: #fff; }
+  .badge { display: inline-block; padding: .15rem .5rem; border-radius: 999px;
+           background: #4466cc; color: #fff; font-size: .72rem; margin-left: .3rem; }
+
+  .multiselect { position: relative; min-width: 260px; }
+  .ms-toggle {
+    width: 100%; display: flex; align-items: center; justify-content: space-between; gap: .5rem;
+    padding: .45rem .6rem; border: 1px solid #bbb; border-radius: 6px; background: #fff;
+    font-size: .85rem; cursor: pointer; text-align: left;
+  }
+  .ms-toggle:hover { border-color: #8896b5; }
+  .ms-toggle .caret { color: #666; font-size: .8rem; }
+  .ms-toggle .lbl { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .ms-panel {
+    display: none; position: absolute; z-index: 50; top: calc(100% + 4px); left: 0; right: 0;
+    background: #fff; border: 1px solid #cfd6e3; border-radius: 8px;
+    box-shadow: 0 8px 24px rgba(0,0,0,.12); padding: .5rem; min-width: 320px; max-width: 420px;
+  }
+  .ms-panel.open { display: block; }
+  .ms-actions { display: flex; gap: .4rem; margin-bottom: .4rem; padding-bottom: .4rem;
+                border-bottom: 1px solid #eef1f5; }
+  .ms-actions button {
+    font-size: .75rem; padding: .2rem .55rem; border: 1px solid #d5dae2;
+    background: #f6f8fa; border-radius: 5px; cursor: pointer; color: #334;
+  }
+  .ms-actions button:hover { background: #eef3ff; border-color: #b9c7f0; }
+  .ms-list { max-height: 280px; overflow-y: auto; display: flex; flex-direction: column; }
+  .ms-item {
+    display: flex; gap: .5rem; align-items: flex-start; padding: .3rem .35rem;
+    border-radius: 5px; cursor: pointer; font-size: .85rem; color: #222;
+  }
+  .ms-item:hover { background: #eef3ff; }
+  .ms-item input { margin-top: .2rem; }
+  .ms-item .cod { font-family: ui-monospace, monospace; color: #2d4bb8;
+                  background: #eef3ff; padding: 0 .35rem; border-radius: 4px; font-size: .78rem; }
+  .ms-item .desc { flex: 1; }
+  .ms-item .meta { color: #777; font-size: .75rem; white-space: nowrap; margin-left: .35rem; }
+  .ms-empty { color: #888; font-size: .85rem; padding: .5rem; text-align: center; }
+
+  .payments-list { display: flex; flex-direction: column; gap: .5rem; }
+  .pay-card { border: 1px solid #e0e5ec; border-radius: 8px; background: #fff;
+              padding: .6rem .8rem; cursor: pointer; transition: .15s; }
+  .pay-card:hover { border-color: #4466cc; box-shadow: 0 2px 8px rgba(68,102,204,.12); }
+  .pay-card .head { display: flex; justify-content: space-between; align-items: baseline;
+                    font-size: .9rem; font-weight: 600; color: #334; margin-bottom: .25rem; }
+  .pay-card .head .valor { color: #226600; font-family: ui-monospace, monospace; }
+  .pay-card .meta { display: flex; flex-wrap: wrap; gap: .35rem .9rem; font-size: .78rem; color: #555; }
+  .pay-card .meta b { color: #333; font-weight: 600; }
+  .pay-card .page-tag { font-size: .72rem; background: #eef3ff; color: #2d4bb8;
+                        padding: .1rem .45rem; border-radius: 999px; }
+  .rub-lines { margin-top: .4rem; border-top: 1px dashed #e5e8ee; padding-top: .4rem;
+               display: flex; flex-direction: column; gap: .15rem; font-size: .8rem; }
+  .rub-lines .rub { display: flex; justify-content: space-between; gap: .5rem; }
+  .rub-lines .rub code { background: #eef3ff; color: #2d4bb8; padding: 0 .3rem;
+                         border-radius: 4px; font-size: .75rem; }
+
+  .md-modal-overlay {
+    position: fixed; inset: 0; background: rgba(15,18,24,.55);
+    display: none; align-items: center; justify-content: center;
+    z-index: 1000; padding: 1.5rem; backdrop-filter: blur(2px);
+  }
+  .md-modal-overlay.open { display: flex; }
+  .md-modal {
+    background: #fff; width: min(1000px, 100%); height: min(90vh, 100%);
+    border-radius: 12px; display: flex; flex-direction: column;
+    box-shadow: 0 20px 60px rgba(0,0,0,.35); overflow: hidden;
+  }
+  .md-modal-header {
+    display: flex; align-items: center; gap: .75rem;
+    padding: .7rem 1rem; border-bottom: 1px solid #e5e8ee; background: #f8f9fb;
+  }
+  .md-modal-header h2 { font-size: 1rem; margin: 0; color: #222; }
+  .md-modal-header .spacer { flex: 1; }
+  .md-modal-body {
+    flex: 1; overflow: auto; padding: 1.5rem 2rem;
+    font-size: .92rem; color: #222; line-height: 1.55;
+  }
+  .md-modal-body h1 { font-size: 1.4rem; border-bottom: 2px solid #e5e8ee; padding-bottom: .35rem; margin: 1rem 0 .8rem; }
+  .md-modal-body h2 { font-size: 1.15rem; margin: 1.4rem 0 .5rem; color: #334; }
+  .md-modal-body h3 { font-size: 1rem; margin: 1rem 0 .4rem; color: #4466cc; }
+  .md-modal-body p { margin: .5rem 0; }
+  .md-modal-body ul { margin: .35rem 0 .8rem 1.2rem; }
+  .md-modal-body li { margin: .1rem 0; }
+  .md-modal-body code {
+    background: #eef1f5; color: #b30059; padding: .05rem .3rem; border-radius: 4px;
+    font-family: ui-monospace, monospace; font-size: .85em;
+  }
+  .md-modal-body blockquote {
+    border-left: 4px solid #d6e0ff; background: #f6f8ff;
+    margin: .8rem 0; padding: .5rem .9rem; color: #334;
+  }
+  .md-modal-body table {
+    border-collapse: collapse; width: 100%; margin: .7rem 0 1.2rem;
+    font-size: .82rem; background: #fff;
+  }
+  .md-modal-body th, .md-modal-body td {
+    border: 1px solid #dde3ea; padding: .35rem .55rem; text-align: left;
+    vertical-align: top; white-space: nowrap;
+  }
+  .md-modal-body thead th {
+    background: #eef3ff; color: #2d4bb8; font-weight: 600;
+    position: sticky; top: 0; z-index: 1;
+  }
+  .md-modal-body tbody tr:nth-child(even) { background: #fafbfd; }
+  .md-modal-footer {
+    padding: .55rem 1rem; border-top: 1px solid #e5e8ee; background: #f8f9fb;
+    display: flex; gap: .5rem; justify-content: flex-end; font-size: .85rem;
+  }
+</style>
+</head>
+<body>
+
+<div class="layout" id="layout">
+  <aside class="viewer" id="viewerPanel">
+    <div class="viewer-toolbar">
+      <button id="vPrev" title="Página anterior">◀</button>
+      <input id="vPage" type="number" min="1" value="1" title="Ir para página">
+      <span class="page-info">/ <span id="vTotal">0</span></span>
+      <button id="vNext" title="Próxima página">▶</button>
+      <div class="sep"></div>
+      <button id="vZoomOut" title="Reduzir">−</button>
+      <span class="page-info" id="vZoomLabel">100%</span>
+      <button id="vZoomIn" title="Aumentar">+</button>
+      <button id="vFit" title="Ajustar à largura">Ajustar</button>
+      <span class="file-name" id="vFileName"></span>
+    </div>
+    <div class="viewer-canvas-wrap" id="vWrap">
+      <div class="viewer-empty" id="vEmpty">Selecione um PDF para visualizar aqui.</div>
+    </div>
+  </aside>
+
+  <main class="converter">
+    <div class="converter-inner">
+      <div class="converter-header">
+        <h1>Conversor PDF → Markdown</h1>
+        <button class="btn ghost" id="toggleViewer" type="button">👁 Ocultar PDF</button>
+      </div>
+      <p class="lead">Processamento 100% local, nada é enviado para servidor.</p>
+
+      <div class="drop" id="drop">
+        <input type="file" id="file" accept="application/pdf" hidden>
+        Arraste o PDF aqui ou
+        <button class="btn" id="pick" type="button">escolher arquivo</button>
+      </div>
+
+      <div id="status"></div>
+
+      <div id="result" style="display:none">
+
+        <div class="filter-box">
+          <div class="field">
+            <label>Filtrar por rubrica (multi)</label>
+            <div class="multiselect" id="rubricaMS">
+              <button type="button" class="ms-toggle" id="rubricaToggle" aria-haspopup="listbox" aria-expanded="false">
+                <span class="lbl" id="rubricaLabel">— Todas as rubricas —</span>
+                <span class="caret">▾</span>
+              </button>
+              <div class="ms-panel" id="rubricaPanel">
+                <div class="ms-actions">
+                  <button type="button" data-act="all">Selecionar todas</button>
+                  <button type="button" data-act="none">Limpar</button>
+                </div>
+                <div class="ms-list" id="rubricaList"></div>
+              </div>
+            </div>
+          </div>
+
+          <div class="field">
+            <label for="competSelect">Filtrar por competência</label>
+            <select id="competSelect" style="padding:.45rem .6rem;border:1px solid #bbb;border-radius:6px;font-size:.85rem;min-width:180px;background:#fff">
+              <option value="">— Todas as competências —</option>
+            </select>
+          </div>
+
+          <div class="field">
+            <label for="searchText">Busca livre</label>
+            <input id="searchText" type="search" placeholder="ex.: correção, 101, monetária...">
+          </div>
+
+          <button class="btn secondary" id="clearFilter" type="button">Limpar filtros</button>
+          <button class="btn ghost" id="openMdTop" type="button">👁 Visualizar MD</button>
+          <span id="filterInfo" class="badge" style="display:none"></span>
+        </div>
+
+        <div class="tabs">
+          <button data-tab="cards" class="active">Blocos</button>
+          <button data-tab="md">Markdown</button>
+          <button data-tab="json">JSON</button>
+          <button data-tab="raw">Texto bruto</button>
+          <button data-tab="debug">Debug</button>
+        </div>
+
+        <div class="panel active" id="panel-cards">
+          <div class="payments-list" id="outCards"></div>
+        </div>
+
+        <div class="panel" id="panel-md">
+          <div class="actions">
+            <button class="btn" id="viewMd">👁 Visualizar</button>
+            <button class="btn secondary" id="copy-md">Copiar</button>
+            <button class="btn secondary" id="dl-md">Baixar .md</button>
+          </div>
+          <pre id="out-md"></pre>
+        </div>
+
+        <div class="panel" id="panel-json">
+          <div class="actions">
+            <button class="btn" id="copy-json">Copiar</button>
+            <button class="btn secondary" id="dl-json">Baixar .json</button>
+          </div>
+          <pre id="out-json"></pre>
+        </div>
+
+        <div class="panel" id="panel-raw"><pre id="out-raw"></pre></div>
+        <div class="panel" id="panel-debug"><pre id="out-debug"></pre></div>
+      </div>
+    </div>
+  </main>
+</div>
+
+<div class="md-modal-overlay" id="mdModal" role="dialog" aria-modal="true">
+  <div class="md-modal" role="document">
+    <div class="md-modal-header">
+      <h2>Relatório (Markdown renderizado)</h2>
+      <span class="spacer"></span>
+      <button class="btn secondary" id="mdCopyBtn" type="button">Copiar MD</button>
+      <button class="btn secondary" id="mdDlBtn" type="button">Baixar .md</button>
+      <button class="btn secondary" id="mdCloseBtn" type="button" aria-label="Fechar">✕</button>
+    </div>
+    <div class="md-modal-body" id="mdModalBody"></div>
+    <div class="md-modal-footer">
+      <span style="color:#777;align-self:center;margin-right:auto;font-size:.78rem">
+        Dica: pressione <b>Esc</b> para fechar.
+      </span>
+      <button class="btn secondary" id="mdCloseBtn2" type="button">Fechar</button>
+    </div>
+  </div>
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/marked/9.1.6/marked.min.js"></script>
+<script>
+pdfjsLib.GlobalWorkerOptions.workerSrc =
+  'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+
+if (window.marked && marked.setOptions) {
+  marked.setOptions({ gfm: true, breaks: false, headerIds: false, mangle: false });
+}
+
+const $ = id => document.getElementById(id);
+function escapeRegex(s) { return String(s).replace(/[.*+?^${}()|[\]\\]/g, '\\$&'); }
+
+/* ============================================================
+   TOGGLE DO VISUALIZADOR
+   ============================================================ */
+const layout = $('layout');
+const toggleBtn = $('toggleViewer');
+toggleBtn.addEventListener('click', () => {
+  const hidden = layout.classList.toggle('no-viewer');
+  toggleBtn.textContent = hidden ? '👁 Mostrar PDF' : '👁 Ocultar PDF';
+  if (!hidden) setTimeout(() => { Viewer.rerender(); }, 50);
+});
+
+/* ============================================================
+   VISUALIZADOR PDF
+   ============================================================ */
+const Viewer = (() => {
+  let pdfDoc = null, currentPage = 1, scale = 1.0, rendering = false, pendingPage = null;
+  const canvasWrap = $('vWrap');
+  let canvas = null;
+
+  function ensureCanvas() {
+    if (canvas && canvas.parentNode === canvasWrap) return canvas;
+    canvas = document.createElement('canvas');
+    canvasWrap.innerHTML = '';
+    canvasWrap.appendChild(canvas);
+    return canvas;
+  }
+
+  async function renderPage(num) {
+    if (!pdfDoc) return;
+    if (rendering) { pendingPage = num; return; }
+    rendering = true;
+    try {
+      const page = await pdfDoc.getPage(num);
+      const viewport = page.getViewport({ scale });
+      const dpr = window.devicePixelRatio || 1;
+      const c = ensureCanvas();
+      c.width  = Math.floor(viewport.width  * dpr);
+      c.height = Math.floor(viewport.height * dpr);
+      c.style.width  = Math.floor(viewport.width) + 'px';
+      c.style.height = Math.floor(viewport.height) + 'px';
+      const ctx = c.getContext('2d');
+      ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+      ctx.clearRect(0, 0, viewport.width, viewport.height);
+      await page.render({ canvasContext: ctx, viewport }).promise;
+      currentPage = num;
+      $('vPage').value = num;
+    } catch (err) { console.error(err); }
+    finally {
+      rendering = false;
+      if (pendingPage !== null) { const p = pendingPage; pendingPage = null; renderPage(p); }
+    }
+  }
+
+  async function load(arrayBuffer, fileName) {
+    if ($('vEmpty')) $('vEmpty').style.display = 'none';
+    pdfDoc = await pdfjsLib.getDocument({ data: arrayBuffer }).promise;
+    $('vTotal').textContent = pdfDoc.numPages;
+    $('vPage').max = pdfDoc.numPages;
+    $('vFileName').textContent = fileName || '';
+    currentPage = 1; scale = 1.0; updateZoomLabel();
+    await renderPage(1);
+  }
+
+  function updateZoomLabel() { $('vZoomLabel').textContent = Math.round(scale * 100) + '%'; }
+  function goTo(num) { if (!pdfDoc) return; num = Math.max(1, Math.min(pdfDoc.numPages, num)); renderPage(num); }
+
+  async function fitWidth() {
+    if (!pdfDoc) return;
+    const page = await pdfDoc.getPage(currentPage);
+    const vp = page.getViewport({ scale: 1 });
+    const avail = canvasWrap.clientWidth - 32;
+    scale = Math.max(0.2, Math.min(4, avail / vp.width));
+    updateZoomLabel();
+    renderPage(currentPage);
+  }
+
+  $('vPrev').addEventListener('click', () => goTo(currentPage - 1));
+  $('vNext').addEventListener('click', () => goTo(currentPage + 1));
+  $('vPage').addEventListener('change', e => goTo(parseInt(e.target.value, 10) || 1));
+  $('vZoomIn').addEventListener('click',  () => { scale = Math.min(4, scale + 0.15); updateZoomLabel(); renderPage(currentPage); });
+  $('vZoomOut').addEventListener('click', () => { scale = Math.max(0.2, scale - 0.15); updateZoomLabel(); renderPage(currentPage); });
+  $('vFit').addEventListener('click', fitWidth);
+
+  let rzTimer;
+  window.addEventListener('resize', () => {
+    clearTimeout(rzTimer);
+    rzTimer = setTimeout(() => { if (pdfDoc && !layout.classList.contains('no-viewer')) renderPage(currentPage); }, 200);
+  });
+
+  function flash() {
+    if (!canvas) return;
+    const old = canvas.style.outline;
+    canvas.style.outline = '3px solid #ffd54f';
+    setTimeout(() => { canvas.style.outline = old || ''; }, 900);
+  }
+
+  function rerender() { if (pdfDoc) renderPage(currentPage); }
+
+  return {
+    load, goTo, flash, rerender,
+    gotoPage(page) {
+      if (layout.classList.contains('no-viewer')) {
+        layout.classList.remove('no-viewer');
+        toggleBtn.textContent = '👁 Ocultar PDF';
+        setTimeout(() => { goTo(page); flash(); }, 60);
+      } else {
+        goTo(page); flash();
+      }
+    }
+  };
+})();
+
+/* ============================================================
+   MODAL MD
+   ============================================================ */
+const MdModal = (() => {
+  const overlay = $('mdModal');
+  const body = $('mdModalBody');
+  let currentMd = '';
+
+  function render(md) {
+    currentMd = md || '';
+    if (window.marked) {
+      let html = marked.parse(currentMd);
+      html = html
+        .replace(/<script[\s\S]*?<\/script>/gi, '')
+        .replace(/\son\w+="[^"]*"/gi, '')
+        .replace(/\son\w+='[^']*'/gi, '');
+      body.innerHTML = html;
+    } else {
+      body.innerHTML = '<pre>' + currentMd.replace(/[<>&]/g, c => ({'<':'&lt;','>':'&gt;','&':'&amp;'}[c])) + '</pre>';
+    }
+  }
+  function open(md) {
+    render(md);
+    overlay.classList.add('open');
+    document.body.style.overflow = 'hidden';
+  }
+  function close() {
+    overlay.classList.remove('open');
+    document.body.style.overflow = '';
+  }
+  overlay.addEventListener('click', e => { if (e.target === overlay) close(); });
+  $('mdCloseBtn').addEventListener('click', close);
+  $('mdCloseBtn2').addEventListener('click', close);
+  document.addEventListener('keydown', e => {
+    if (e.key === 'Escape' && overlay.classList.contains('open')) close();
+  });
+  $('mdCopyBtn').addEventListener('click', () => {
+    navigator.clipboard.writeText(currentMd).then(() => {
+      const b = $('mdCopyBtn'); const t = b.textContent;
+      b.textContent = 'Copiado!'; setTimeout(() => b.textContent = t, 1200);
+    });
+  });
+  $('mdDlBtn').addEventListener('click', () => {
+    const blob = new Blob([currentMd], { type: 'text/markdown;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url; a.download = 'hiscre-filtrado.md';
+    document.body.appendChild(a); a.click(); a.remove();
+    URL.revokeObjectURL(url);
+  });
+  return { open, close, render };
+})();
+
+/* ============================================================
+   EXTRAÇÃO
+   ============================================================ */
+async function extractPages(arrayBuffer) {
+  const pdf = await pdfjsLib.getDocument({ data: arrayBuffer }).promise;
+  const pages = [];
+  for (let p = 1; p <= pdf.numPages; p++) {
+    const page = await pdf.getPage(p);
+    const content = await page.getTextContent();
+    const { lines, debug } = itemsToLines(content.items);
+    pages.push({ page: p, lines, debug, text: lines.join('\n') });
+  }
+  return pages;
+}
+
+function itemsToLines(items) {
+  const TOL = 4;
+  const rows = [];
+  for (const it of items) {
+    if (!it.str || !it.str.trim()) continue;
+    const x = it.transform[4], y = it.transform[5];
+    let row = rows.find(r => Math.abs(r.y - y) <= TOL);
+    if (!row) { row = { y, items: [] }; rows.push(row); }
+    row.items.push({ x, str: it.str });
+  }
+  rows.sort((a, b) => b.y - a.y);
+  const debug = rows.map(r => ({ y: +r.y.toFixed(2), items: r.items.map(i => ({ x: +i.x.toFixed(2), s: i.str })) }));
+  const lines = rows.map(r => {
+    r.items.sort((a, b) => a.x - b.x);
+    return r.items.map(i => i.str).join(' ').replace(/\s+/g, ' ').trim();
+  }).filter(l => l.length > 0);
+  return { lines, debug };
+}
+
+/* ============================================================
+   PARSER
+   ============================================================ */
+function normalizeText(text) { return String(text).replace(/\s+/g, ' ').trim(); }
+function parseMoeda(s) {
+  if (!s) return null;
+  const clean = String(s).replace(/[^\d,.-]/g, '');
+  let n = clean.includes(',') ? clean.replace(/\./g, '').replace(',', '.') : clean;
+  const v = parseFloat(n);
+  return isNaN(v) ? null : v;
+}
+function fmtMoeda(n) {
+  return 'R$ ' + n.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+}
+
+function extractHeader(text) {
+  const get = (re) => { const m = text.match(re); return m ? m[1].trim() : ''; };
+  return {
+    nit: get(/NIT:\s*([\d.\-]+)/),
+    cpf: get(/CPF:\s*([\d.\-]+)/),
+    dataNascimento: get(/Data de Nascimento:\s*([\d/]+)/),
+    nome: get(/Nome:\s*([^\n]+?)(?=\s*(?:Nome da mãe:|Compet\.|$))/),
+    nomeMae: get(/Nome da mãe:\s*([^\n]+?)(?=\s*(?:Compet\.|$))/),
+    competInicial: get(/Compet\.?\s*Inicial:\s*([\d/]+)/),
+    competFinal: get(/Compet\.?\s*Final:\s*([\d/]+)/),
+  };
+}
+
+function parsePageText(text, pgNumber) {
+  const flat = normalizeText(text);
+  const debugBlocks = [], payments = [];
+  const recordRe = /(?<![\d/])(\d{2}\/\d{4})\s+(\d{2}\/\d{2}\/\d{4})(?![\d/])/g;
+  const starts = [];
+  let m;
+  while ((m = recordRe.exec(flat)) !== null) {
+    starts.push({ idx: m.index, len: m[0].length, competencia: m[1], inicio: m[2] });
+  }
+  if (!starts.length) return { payments, debugBlocks };
+
+  for (let i = 0; i < starts.length; i++) {
+    const s = starts[i];
+    const startIdx = s.idx;
+    const endIdx = starts[i + 1] ? starts[i + 1].idx : flat.length;
+    const blockText = flat.slice(startIdx, endIdx).trim();
+    const block = parseBlock(blockText, s.competencia, s.inicio);
+    block._page = pgNumber;
+    payments.push(block);
+    debugBlocks.push({ page: pgNumber, competencia: s.competencia, inicio: s.inicio,
+      raw: blockText, parsed: JSON.parse(JSON.stringify(block)) });
+  }
+  return { payments, debugBlocks };
+}
+
+const STATUS_LIST = ['Pago', 'Pendente', 'Cancelado', 'Em processamento', 'Não pago', 'Aguardando'];
+const STATUS_RE = new RegExp('\\b(' + STATUS_LIST.join('|') + ')\\b');
+
+function parseBlock(text, competencia, periodoInicio) {
+  const out = {
+    competencia, periodoInicio, periodoFim: '', periodo: periodoInicio,
+    valorLiquido: '', meioPagamento: '', status: '',
+    previsaoPagamento: '', dataPagamento: '',
+    creditoInvalidado: '', isentoIR: '',
+    rubricas: [], banco: null, _page: null, _raw: text,
+  };
+
+  // -------- PERÍODO --------
+  // Camada 1: "DD/MM/AAAA a DD/MM/AAAA" contíguo.
+  // Camada 2: periodoInicio ... 'a' isolado ... DD/MM/AAAA (com folga).
+  // Camada 3: só o início.
+  let periodoFim = '';
+  const pCont = text.match(/\b(\d{2}\/\d{2}\/\d{4})\s+a\s+(\d{2}\/\d{2}\/\d{4})\b/);
+  if (pCont) {
+    periodoFim = pCont[2];
+  } else {
+    const re = new RegExp(
+      escapeRegex(periodoInicio) +
+      '[\\s\\S]{0,120}?(?:^|\\s)a(?:\\s|$)[\\s\\S]{0,80}?(\\d{2}\\/\\d{2}\\/\\d{4})'
+    );
+    const m = text.match(re);
+    if (m && m[1] !== periodoInicio) periodoFim = m[1];
+  }
+  if (periodoFim) {
+    out.periodoFim = periodoFim;
+    out.periodo = `${periodoInicio} a ${periodoFim}`;
+  } else {
+    out.periodo = periodoInicio;
+  }
+
+  const statusM = text.match(STATUS_RE);
+  if (statusM) {
+    out.status = statusM[1];
+    const before = text.slice(0, statusM.index);
+    const valorMatches = [...before.matchAll(/[Rr]\s*[\$s]?\s*[\d.,]+/g)];
+    if (valorMatches.length) {
+      const last = valorMatches[valorMatches.length - 1];
+      out.valorLiquido = last[0].replace(/\s+/g, ' ').trim();
+      out.meioPagamento = before.slice(last.index + last[0].length, statusM.index).trim();
+    }
+  }
+
+  if (out.status) {
+    const idxS = text.indexOf(out.status);
+    const after = text.slice(idxS + out.status.length);
+    const dates = after.match(/\b(\d{2}\/\d{2}\/\d{4})\b/g) || [];
+    if (dates[0]) out.previsaoPagamento = dates[0];
+    if (dates[1]) out.dataPagamento = dates[1];
+  }
+
+  // -------- CRÉDITO INVALIDADO / ISENTO IR --------
+  // Ancorar pela previsão resolve o caso em que previsão == dataPagamento,
+  // pois indexOf(dataPagamento) acharia a posição da previsão.
+  if (out.previsaoPagamento) {
+    const idxPrev = text.indexOf(out.previsaoPagamento);
+    if (idxPrev >= 0) {
+      const afterPrev = text.slice(idxPrev + out.previsaoPagamento.length);
+      // Caso 1: depois da previsão vem a dataPagamento + Sim/Não Sim/Não
+      const sn1 = afterPrev.match(/^\s*\d{2}\/\d{2}\/\d{4}\s+(Sim|Não)\s+(Sim|Não)/);
+      if (sn1) {
+        out.creditoInvalidado = sn1[1];
+        out.isentoIR = sn1[2];
+      } else {
+        // Caso 2: sem dataPagamento depois; procura direto o par Sim/Não
+        const sn2 = afterPrev.match(/^\s*(Sim|Não)\s+(Sim|Não)\b/);
+        if (sn2) {
+          out.creditoInvalidado = sn2[1];
+          out.isentoIR = sn2[2];
+        }
+      }
+    }
+  }
+  // Fallback final: se ainda não achou, tenta após a primeira ocorrência do dataPagamento
+  if (!out.creditoInvalidado && out.dataPagamento) {
+    const afterData = text.slice(text.indexOf(out.dataPagamento) + out.dataPagamento.length);
+    const sn3 = afterData.match(/^\s*(Sim|Não)\s+(Sim|Não)/);
+    if (sn3) { out.creditoInvalidado = sn3[1]; out.isentoIR = sn3[2]; }
+  }
+
+  const bancoM = text.match(
+    /Banco:\s*(\S+)\s*-\s*(.+?)\s+OP:\s*(\S+)\s*-\s*(.+?)\s+Ocorr[êe]ncia:\s*(.+?)(?=\s+(?:Data C[áa]lculo|Validade|Rubrica|$))/
+  );
+  if (bancoM) {
+    out.banco = { codigo: bancoM[1], nome: bancoM[2].trim(), op: bancoM[3],
+                  local: bancoM[4].trim(), ocorrencia: bancoM[5].trim() };
+    const rest = text.slice(text.indexOf(bancoM[0]) + bancoM[0].length);
+    const dc = rest.match(/Data C[áa]lculo:\s*([\d/]+)/); if (dc) out.banco.dataCalculo = dc[1];
+    const orig = rest.match(/Origem:\s*(\S+)/); if (orig) out.banco.origem = orig[1];
+    const vi = rest.match(/Validade In[íi]cio:\s*([\d/]+)/); if (vi) out.banco.validadeInicio = vi[1];
+    const vf = rest.match(/Fim:\s*([\d/]+)/); if (vf) out.banco.validadeFim = vf[1];
+  }
+
+  const rubricaRe = new RegExp(
+    '(?:^|\\s)(\\d{1,6})\\s+([A-ZÀ-Þ][A-ZÀ-Þ0-9\\s\\.\\-]{2,}?)\\s+([Rr]\\s*[\\$s]?\\s*[\\d.,]+)(?=\\s|$)', 'g');
+  let rm; const seen = new Set();
+  while ((rm = rubricaRe.exec(text)) !== null) {
+    const codigo = rm[1], desc = rm[2].trim(), valor = rm[3].replace(/\s+/g, ' ').trim();
+    if (codigo === competencia.split('/')[0]) continue;
+    if (desc.length < 3) continue;
+    const key = codigo + '|' + desc + '|' + valor;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.rubricas.push({ codigo, descricao: desc, valor });
+  }
+  return out;
+}
+
+/* ============================================================
+   AGREGAÇÕES
+   ============================================================ */
+function collectRubricas(payments) {
+  const map = new Map();
+  for (const p of payments) {
+    for (const r of p.rubricas) {
+      if (!map.has(r.codigo)) map.set(r.codigo, { codigo: r.codigo, descricao: r.descricao, count: 0, total: 0, comps: new Set() });
+      const e = map.get(r.codigo);
+      e.count++; e.comps.add(p.competencia);
+      if (!e.descricao && r.descricao) e.descricao = r.descricao;
+      const v = parseMoeda(r.valor); if (v != null) e.total += v;
+    }
+  }
+  return [...map.values()]
+    .map(e => ({ ...e, comps: [...e.comps] }))
+    .sort((a, b) => a.codigo.localeCompare(b.codigo, 'pt-BR', { numeric: true }));
+}
+function collectCompetencias(payments) {
+  return [...new Set(payments.map(p => p.competencia))]
+    .sort((a, b) => {
+      const [ma, ya] = a.split('/'), [mb, yb] = b.split('/');
+      if (ya !== yb) return ya - yb;
+      return ma - mb;
+    });
+}
+
+/* ============================================================
+   MARKDOWN
+   ============================================================ */
+function escMd(s) {
+  return String(s == null ? '' : s).replace(/\|/g, '\\|').replace(/\n+/g, ' ').trim();
+}
+function mdTable(headers, rows) {
+  const out = [];
+  out.push('| ' + headers.join(' | ') + ' |');
+  out.push('| ' + headers.map(() => '---').join(' | ') + ' |');
+  for (const r of rows) out.push('| ' + r.map(escMd).join(' | ') + ' |');
+  return out.join('\n');
+}
+
+function applyFilterPredicates(filter) {
+  const rubCodes = Array.isArray(filter.rubricaCodigos)
+    ? filter.rubricaCodigos.map(String)
+    : (filter.rubricaCodigo ? [String(filter.rubricaCodigo)] : []);
+  const comp = filter.competencia || '';
+  const q = (filter.query || '').trim().toLowerCase();
+
+  const rubMatch = (r) => {
+    const okCod = rubCodes.length === 0 || rubCodes.includes(String(r.codigo));
+    const okQ = !q ||
+      String(r.codigo).toLowerCase().includes(q) ||
+      String(r.descricao || '').toLowerCase().includes(q);
+    return okCod && okQ;
+  };
+  const compMatch = (p) => !comp || p.competencia === comp;
+  const filterAtivo = !!(rubCodes.length || comp || q);
+  return { rubCodes, comp, q, rubMatch, compMatch, filterAtivo };
+}
+
+function getFilteredPayments(doc, filter) {
+  const { rubCodes, q, rubMatch, compMatch } = applyFilterPredicates(filter);
+  let payments = doc.payments.filter(compMatch);
+  if (rubCodes.length || q) payments = payments.filter(p => p.rubricas.some(rubMatch));
+  return payments;
+}
+
+function buildMarkdown(doc, filter = {}) {
+  const { rubCodes, comp, q, rubMatch, filterAtivo } = applyFilterPredicates(filter);
+  const payments = getFilteredPayments(doc, filter);
+  const out = [];
+  out.push('# Relatório de Pagamentos');
+  out.push('');
+
+  const h = doc.header || {};
+  if (h.nit || h.cpf || h.nome) {
+    out.push('## Identificação do Filiado');
+    if (h.nit) out.push(`- **NIT:** ${h.nit}`);
+    if (h.cpf) out.push(`- **CPF:** ${h.cpf}`);
+    if (h.dataNascimento) out.push(`- **Data de Nascimento:** ${h.dataNascimento}`);
+    if (h.nome) out.push(`- **Nome:** ${h.nome}`);
+    if (h.nomeMae) out.push(`- **Nome da mãe:** ${h.nomeMae}`);
+    if (h.competInicial) out.push(`- **Compet. Inicial:** ${h.competInicial}`);
+    if (h.competFinal) out.push(`- **Compet. Final:** ${h.competFinal}`);
+    out.push('');
+  }
+
+  const rubricasResumo = [];
+  {
+    const map = new Map();
+    for (const p of doc.payments) {
+      if (comp && p.competencia !== comp) continue;
+      for (const r of p.rubricas) {
+        if (!rubMatch(r)) continue;
+        if (!map.has(r.codigo)) map.set(r.codigo, { codigo: r.codigo, descricao: r.descricao, count: 0, total: 0 });
+        const e = map.get(r.codigo);
+        e.count++;
+        if (!e.descricao && r.descricao) e.descricao = r.descricao;
+        const v = parseMoeda(r.valor); if (v != null) e.total += v;
+      }
+    }
+    rubricasResumo.push(...[...map.values()].sort((a, b) =>
+      a.codigo.localeCompare(b.codigo, 'pt-BR', { numeric: true })));
+  }
+
+  if (rubricasResumo.length) {
+    out.push(filterAtivo ? '## Resumo de Rubricas (filtrado)' : '## Resumo de Rubricas');
+    out.push('');
+    out.push(mdTable(
+      ['Código', 'Descrição', 'Ocorrências', 'Total'],
+      rubricasResumo.map(r => [r.codigo, r.descricao || '', r.count, fmtMoeda(r.total)])
+    ));
+    const totalGeral = rubricasResumo.reduce((s, r) => s + r.total, 0);
+    out.push('');
+    out.push(`**Total geral:** ${fmtMoeda(totalGeral)} em ${rubricasResumo.length} rubrica(s).`);
+    out.push('');
+  }
+
+  if (filterAtivo) {
+    const parts = [];
+    if (rubCodes.length) parts.push(`rubrica(s) **${rubCodes.join(', ')}**`);
+    if (comp) parts.push(`competência **${comp}**`);
+    if (q) parts.push(`busca “${q}”`);
+    out.push(`> 🔎 Filtro: ${parts.join(' + ')} — ${payments.length} de ${doc.payments.length} pagamento(s).`);
+    out.push('');
+  }
+
+  // Tabela de Pagamentos: SEM Meio de Pagamento, SEM Previsão, SEM Data do Pagamento
+  if (payments.length) {
+    out.push('## Pagamentos');
+    out.push('');
+    out.push(mdTable(
+      ['Competência','Período','Valor Líquido','Status','Crédito Invalidado','Isento IR'],
+      payments.map(p => [
+        p.competencia, p.periodo, p.valorLiquido,
+        p.status, p.creditoInvalidado, p.isentoIR
+      ])
+    ));
+    out.push('');
+  }
+
+  const comRubricas = payments
+    .map(p => ({ ...p, rubricasFiltradas: (rubCodes.length || q) ? p.rubricas.filter(rubMatch) : p.rubricas }))
+    .filter(p => p.rubricasFiltradas.length);
+
+  if (comRubricas.length) {
+    out.push('## Rubricas');
+    out.push('');
+    for (const p of comRubricas) {
+      out.push(`### Competência ${p.competencia}`);
+      out.push('');
+      out.push(mdTable(['Código','Descrição','Valor'],
+        p.rubricasFiltradas.map(r => [r.codigo, r.descricao, r.valor])));
+      out.push('');
+    }
+  } else if (filterAtivo) {
+    out.push('## Rubricas');
+    out.push('');
+    out.push('_Nenhuma rubrica encontrada com o filtro atual._');
+    out.push('');
+  }
+
+  const comBanco = payments.filter(p => p.banco);
+  if (comBanco.length) {
+    out.push('## Dados Bancários / Ocorrência');
+    out.push('');
+    for (const p of comBanco) {
+      const b = p.banco;
+      out.push(`### Competência ${p.competencia}`);
+      out.push('');
+      out.push(`- **Banco:** ${b.codigo} - ${b.nome}`);
+      out.push(`- **OP:** ${b.op} - ${b.local}`);
+      out.push(`- **Ocorrência:** ${b.ocorrencia}`);
+      if (b.dataCalculo) out.push(`- **Data Cálculo:** ${b.dataCalculo}`);
+      if (b.origem) out.push(`- **Origem:** ${b.origem}`);
+      if (b.validadeInicio) out.push(`- **Validade:** ${b.validadeInicio} a ${b.validadeFim}`);
+      out.push('');
+    }
+  }
+
+  return out.join('\n');
+}
+
+/* ============================================================
+   CARDS
+   ============================================================ */
+function renderCards(doc, filter) {
+  const payments = getFilteredPayments(doc, filter);
+  const { rubCodes, q, rubMatch } = applyFilterPredicates(filter);
+  const box = $('outCards');
+  box.innerHTML = '';
+  if (!payments.length) {
+    box.innerHTML = '<p style="color:#666">Nenhum pagamento corresponde ao filtro.</p>';
+    return;
+  }
+  for (const p of payments) {
+    const card = document.createElement('div');
+    card.className = 'pay-card';
+    card.dataset.page = p._page || '';
+    const rubs = (rubCodes.length || q) ? p.rubricas.filter(rubMatch) : p.rubricas;
+    card.innerHTML = `
+      <div class="head">
+        <span>Competência ${escHtml(p.competencia)} <span class="page-tag">pág. ${p._page ?? '?'}</span></span>
+        <span class="valor">${escHtml(p.valorLiquido || '—')}</span>
+      </div>
+      <div class="meta">
+        <span><b>Período:</b> ${escHtml(p.periodo || '—')}</span>
+        <span><b>Meio:</b> ${escHtml(p.meioPagamento || '—')}</span>
+        <span><b>Status:</b> ${escHtml(p.status || '—')}</span>
+        ${p.previsaoPagamento ? `<span><b>Prev.:</b> ${escHtml(p.previsaoPagamento)}</span>` : ''}
+        ${p.dataPagamento ? `<span><b>Pago em:</b> ${escHtml(p.dataPagamento)}</span>` : ''}
+        ${p.creditoInvalidado ? `<span><b>Créd. Inv.:</b> ${escHtml(p.creditoInvalidado)}</span>` : ''}
+        ${p.isentoIR ? `<span><b>Isento IR:</b> ${escHtml(p.isentoIR)}</span>` : ''}
+      </div>
+      ${p.banco ? `<div class="meta" style="margin-top:.35rem"><span><b>Banco:</b> ${escHtml(p.banco.codigo + ' - ' + p.banco.nome)}</span><span><b>OP:</b> ${escHtml(p.banco.op + ' - ' + p.banco.local)}</span><span><b>Ocorrência:</b> ${escHtml(p.banco.ocorrencia)}</span></div>` : ''}
+      ${rubs.length ? `
+        <div class="rub-lines">
+          ${rubs.map(r => `<div class="rub"><span><code>${escHtml(r.codigo)}</code> ${escHtml(r.descricao)}</span><span>${escHtml(r.valor)}</span></div>`).join('')}
+        </div>` : ''}
+    `;
+    card.addEventListener('click', () => { if (p._page) Viewer.gotoPage(p._page); });
+    box.appendChild(card);
+  }
+}
+function escHtml(s) {
+  return String(s == null ? '' : s)
+    .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+}
+
+/* ============================================================
+   ABAS
+   ============================================================ */
+document.querySelectorAll('.tabs button').forEach(btn => {
+  btn.addEventListener('click', () => {
+    document.querySelectorAll('.tabs button').forEach(b => b.classList.remove('active'));
+    document.querySelectorAll('.panel').forEach(p => p.classList.remove('active'));
+    btn.classList.add('active');
+    $('panel-' + btn.dataset.tab).classList.add('active');
+  });
+});
+
+/* ============================================================
+   MULTISELECT DE RUBRICAS
+   ============================================================ */
+const RubricaMS = (() => {
+  const toggle = $('rubricaToggle');
+  const panel = $('rubricaPanel');
+  const list = $('rubricaList');
+  const label = $('rubricaLabel');
+  let allOptions = [];
+  const selected = new Set();
+
+  function openPanel() { panel.classList.add('open'); toggle.setAttribute('aria-expanded', 'true'); }
+  function closePanel() { panel.classList.remove('open'); toggle.setAttribute('aria-expanded', 'false'); }
+  function togglePanel() { panel.classList.contains('open') ? closePanel() : openPanel(); }
+
+  function updateLabel() {
+    if (selected.size === 0) {
+      label.textContent = '— Todas as rubricas —';
+      return;
+    }
+    const arr = [...selected].sort((a, b) => a.localeCompare(b, 'pt-BR', { numeric: true }));
+    const preview = arr.slice(0, 3).join(', ');
+    label.textContent = `Rubricas: ${preview}${arr.length > 3 ? ` (+${arr.length - 3})` : ''} (${arr.length})`;
+  }
+
+  function renderList() {
+    list.innerHTML = '';
+    if (!allOptions.length) {
+      list.innerHTML = '<div class="ms-empty">Nenhuma rubrica encontrada.</div>';
+      return;
+    }
+    for (const r of allOptions) {
+      const item = document.createElement('label');
+      item.className = 'ms-item';
+      item.innerHTML = `
+        <input type="checkbox" value="${escHtml(r.codigo)}" ${selected.has(String(r.codigo)) ? 'checked' : ''}>
+        <span class="cod">${escHtml(r.codigo)}</span>
+        <span class="desc">${escHtml(r.descricao || '(sem descrição)')}</span>
+        <span class="meta">${r.count}x · ${fmtMoeda(r.total)}</span>
+      `;
+      item.querySelector('input').addEventListener('change', e => {
+        if (e.target.checked) selected.add(String(r.codigo));
+        else selected.delete(String(r.codigo));
+        updateLabel();
+        applyFilter();
+      });
+      list.appendChild(item);
+    }
+  }
+
+  function setOptions(rubricas) {
+    allOptions = rubricas.slice();
+    const valid = new Set(allOptions.map(r => String(r.codigo)));
+    [...selected].forEach(c => { if (!valid.has(c)) selected.delete(c); });
+    renderList();
+    updateLabel();
+  }
+
+  function getSelected() { return [...selected]; }
+  function clear() { selected.clear(); renderList(); updateLabel(); }
+  function selectAll() { allOptions.forEach(r => selected.add(String(r.codigo))); renderList(); updateLabel(); }
+
+  toggle.addEventListener('click', e => { e.stopPropagation(); togglePanel(); });
+  panel.addEventListener('click', e => e.stopPropagation());
+  document.addEventListener('click', () => closePanel());
+  document.addEventListener('keydown', e => { if (e.key === 'Escape') closePanel(); });
+
+  panel.querySelector('[data-act="all"]').addEventListener('click', () => { selectAll(); applyFilter(); });
+  panel.querySelector('[data-act="none"]').addEventListener('click', () => { clear(); applyFilter(); });
+
+  return { setOptions, getSelected, clear };
+})();
+
+/* ============================================================
+   FILTROS
+   ============================================================ */
+$('competSelect').addEventListener('change', applyFilter);
+$('searchText').addEventListener('input', applyFilter);
+$('clearFilter').addEventListener('click', () => {
+  RubricaMS.clear();
+  $('competSelect').value = '';
+  $('searchText').value = '';
+  applyFilter();
+});
+
+let currentDoc = null;
+let currentJson = '';
+
+function applyFilter() {
+  if (!currentDoc) return;
+  const filter = {
+    rubricaCodigos: RubricaMS.getSelected(),
+    competencia: $('competSelect').value,
+    query: $('searchText').value,
+  };
+  const md = buildMarkdown(currentDoc, filter);
+  $('out-md').textContent = md;
+  wireExport('copy-md', 'dl-md', md, 'text/markdown', 'hiscre-filtrado.md');
+  renderCards(currentDoc, filter);
+
+  const info = $('filterInfo');
+  const parts = [];
+  if (filter.rubricaCodigos.length) parts.push('rubrica(s) ' + filter.rubricaCodigos.join(', '));
+  if (filter.competencia) parts.push('comp. ' + filter.competencia);
+  if (filter.query) parts.push('busca "' + filter.query + '"');
+  if (parts.length) { info.textContent = 'Filtro: ' + parts.join(' + '); info.style.display = 'inline-block'; }
+  else info.style.display = 'none';
+}
+
+function populateSelects(doc) {
+  const rubricas = collectRubricas(doc.payments);
+  RubricaMS.setOptions(rubricas);
+
+  const selC = $('competSelect');
+  selC.innerHTML = '<option value="">— Todas as competências —</option>';
+  const comps = collectCompetencias(doc.payments);
+  for (const c of comps) {
+    const opt = document.createElement('option');
+    opt.value = c; opt.textContent = c;
+    selC.appendChild(opt);
+  }
+  return { rubricas, comps };
+}
+
+/* ============================================================
+   BOTÕES DE VISUALIZAÇÃO DO MD
+   ============================================================ */
+$('viewMd').addEventListener('click', () => MdModal.open($('out-md').textContent || ''));
+$('openMdTop').addEventListener('click', () => MdModal.open($('out-md').textContent || ''));
+
+/* ============================================================
+   FLUXO PRINCIPAL
+   ============================================================ */
+const drop = $('drop'), fileInput = $('file'), pickBtn = $('pick');
+const statusEl = $('status'), resultEl = $('result');
+
+pickBtn.addEventListener('click', () => fileInput.click());
+drop.addEventListener('click', (e) => { if (e.target === drop) fileInput.click(); });
+['dragenter','dragover'].forEach(ev =>
+  drop.addEventListener(ev, e => { e.preventDefault(); drop.classList.add('hover'); }));
+['dragleave','drop'].forEach(ev =>
+  drop.addEventListener(ev, e => { e.preventDefault(); drop.classList.remove('hover'); }));
+drop.addEventListener('drop', e => { const f = e.dataTransfer.files[0]; if (f) handleFile(f); });
+fileInput.addEventListener('change', e => { const f = e.target.files[0]; if (f) handleFile(f); });
+
+async function handleFile(file) {
+  statusEl.innerHTML = '';
+  resultEl.style.display = 'none';
+  currentDoc = null;
+
+  if (!/\.pdf$/i.test(file.name) && file.type !== 'application/pdf') {
+    statusEl.innerHTML = '<div class="err">Arquivo não é PDF.</div>'; return;
+  }
+  statusEl.innerHTML = '<div class="info">Processando <b>' + file.name + '</b>…</div>';
+
+  let buf;
+  try { buf = await file.arrayBuffer(); }
+  catch (err) { statusEl.innerHTML = '<div class="err">Falha ao ler arquivo: ' + err.message + '</div>'; return; }
+
+  try { await Viewer.load(buf.slice(0), file.name); }
+  catch (err) { console.error('Viewer:', err); }
+
+  let pages;
+  try { pages = await extractPages(buf.slice(0)); }
+  catch (err) { statusEl.innerHTML = '<div class="err">Falha ao extrair texto: ' + err.message + '</div>'; return; }
+
+  const doc = { filename: file.name, pages: [], header: {}, payments: [] };
+  const debugLines = [];
+
+  for (const pg of pages) {
+    const header = extractHeader(pg.text);
+    const { payments, debugBlocks } = parsePageText(pg.text, pg.page);
+    doc.pages.push({ page: pg.page, header, payments, rawText: pg.text, lines: pg.lines });
+    for (const k of Object.keys(header)) { if (!doc.header[k] && header[k]) doc.header[k] = header[k]; }
+    doc.payments.push(...payments);
+
+    debugLines.push('===== Página ' + pg.page + ' =====');
+    debugLines.push('Linhas detectadas: ' + pg.lines.length + ' | Pagamentos: ' + payments.length);
+    debugLines.push('');
+    debugLines.push('--- Linhas (y, x, str) ---');
+    pg.debug.forEach((r, idx) => {
+      debugLines.push(`y=${String(r.y).padStart(7)}  ${r.items.map(i => `x=${String(i.x).padStart(7)} "${i.s}"`).join('  ')}`);
+      if (idx > 200) debugLines.push('…');
+    });
+    debugLines.push('');
+    debugLines.push('--- Blocos reconhecidos ---');
+    debugBlocks.forEach((b, k) => {
+      debugLines.push(`#${k + 1}  competência=${b.competencia}  início=${b.inicio}  pág=${b.page}`);
+      debugLines.push('  PERÍODO: ' + (b.parsed.periodo || '(vazio)'));
+      debugLines.push('  PREV: ' + (b.parsed.previsaoPagamento || '(vazio)') +
+                      '  |  DATA: ' + (b.parsed.dataPagamento || '(vazio)') +
+                      '  |  CRED.INV: ' + (b.parsed.creditoInvalidado || '(vazio)') +
+                      '  |  ISENTO IR: ' + (b.parsed.isentoIR || '(vazio)'));
+      debugLines.push('  RUBRICAS:');
+      if (!b.parsed.rubricas.length) debugLines.push('    (nenhuma)');
+      b.parsed.rubricas.forEach(r => debugLines.push(`    → ${r.codigo} | ${r.descricao} | ${r.valor}`));
+      debugLines.push('  BANCO: ' + (b.parsed.banco ? JSON.stringify(b.parsed.banco) : '(nenhum)'));
+      debugLines.push('  Texto do bloco: ' + b.raw.slice(0, 500) + (b.raw.length > 500 ? '…' : ''));
+      debugLines.push('');
+    });
+  }
+
+  currentDoc = doc;
+  currentJson = JSON.stringify(doc, null, 2);
+  const raw = pages.map(p => `===== Página ${p.page} =====\n${p.text}`).join('\n\n');
+
+  const { rubricas, comps } = populateSelects(doc);
+  $('competSelect').value = '';
+  $('searchText').value = '';
+
+  applyFilter();
+  $('out-json').textContent = currentJson;
+  $('out-raw').textContent = raw;
+  $('out-debug').textContent = debugLines.join('\n');
+  resultEl.style.display = 'block';
+
+  wireExport('copy-json', 'dl-json', currentJson, 'application/json', 'hiscre.json');
+
+  const totalRubricas = doc.payments.reduce((s, p) => s + p.rubricas.length, 0);
+  statusEl.innerHTML =
+    `<div class="info">✓ ${pages.length} página(s). ` +
+    `${doc.payments.length} bloco(s) de pagamento, ` +
+    `${rubricas.length} rubrica(s) distintas, ${comps.length} competência(s), ` +
+    `${totalRubricas} ocorrência(s) de rubrica. ` +
+    `Clique num bloco para pular no visualizador ou use <b>Visualizar MD</b>.</div>`;
+}
+
+function wireExport(copyId, dlId, content, mime, filename) {
+  const copyBtn = $(copyId), dlBtn = $(dlId);
+  if (!copyBtn || !dlBtn) return;
+  copyBtn.onclick = () => {
+    navigator.clipboard.writeText(content).then(() => {
+      const t = copyBtn.textContent;
+      copyBtn.textContent = 'Copiado!';
+      setTimeout(() => copyBtn.textContent = t, 1200);
+    });
+  };
+  dlBtn.onclick = () => {
+    const blob = new Blob([content], { type: mime + ';charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url; a.download = filename;
+    document.body.appendChild(a); a.click(); a.remove();
+    URL.revokeObjectURL(url);
+  };
+}
+</script>
+</body>
+</html>
